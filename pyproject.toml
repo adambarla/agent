@@ -1,0 +1,25 @@
+[project]
+name = "agent"
+version = "0.1.0"
+description = "Bare bones agent harness"
+readme = "README.md"
+authors = [
+    { name = "Adam Barla", email = "adam.barla@icloud.com" }
+]
+requires-python = ">=3.13"
+dependencies = [
+    "openai>=2.38.0",
+    "python-dotenv>=1.2.2",
+]
+
+[project.scripts]
+agent = "agent.main:main"
+
+[build-system]
+requires = ["uv_build>=0.11.6,<0.12.0"]
+build-backend = "uv_build"
+
+[dependency-groups]
+dev = [
+    "pre-commit>=4.6.0",
+]
