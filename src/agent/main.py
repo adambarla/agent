@@ -2,12 +2,18 @@ import argparse
 import logging
 import os
 from datetime import datetime
+from typing import Optional, cast
 
 from dotenv import load_dotenv
 from openai import OpenAI
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import (
+  ChatCompletionMessage,
+  ChatCompletionMessageParam,
+)
+from openai.types.shared.reasoning_effort import ReasoningEffort
 
 from agent.data.prompts import SYSTEM_PROMPT
+from agent.tools import AddTool, ToolRegistry
 
 load_dotenv()
 
@@ -38,27 +44,50 @@ def get_user_input() -> str:
   return user_input
 
 
-def chat_loop(messages: list[ChatCompletionMessageParam]) -> None:
+def call(
+  messages: list[ChatCompletionMessageParam],
+  tool_registry: ToolRegistry,
+  client: OpenAI = client,
+  model: str = "deepseek-v4-flash",
+  reasoning_effort: Optional[ReasoningEffort] = "low",
+  thinking: bool = True,
+) -> ChatCompletionMessage:
+  response = client.chat.completions.create(
+    model=model,
+    stream=False,
+    messages=messages,
+    reasoning_effort=reasoning_effort,
+    extra_body={"thinking": {"type": "enabled" if thinking else "disabled"}},
+    tools=tool_registry.get_tools(),
+  )
+  logger.debug(response)
+  return response.choices[0].message
+
+
+def chat_loop(
+  messages: list[ChatCompletionMessageParam],
+  tool_registry: ToolRegistry = ToolRegistry(),
+) -> None:
   while True:
     user_input = get_user_input()
 
     logger.info(f"User input: {user_input}")
 
     messages.append({"role": "user", "content": user_input})
-    response = client.chat.completions.create(
-      model="deepseek-v4-flash",
-      stream=False,
-      messages=messages,
-      reasoning_effort="low",
-      extra_body={"thinking": {"type": "enabled"}},
-    )
-    assistant_content = response.choices[0].message.content or ""
-    messages.append({"role": "assistant", "content": assistant_content})
-    print(f"Agent: {assistant_content}")
+    while True:
+      message = call(messages, tool_registry=tool_registry)
+      messages.append(cast(ChatCompletionMessageParam, message))
 
-    logger.info(f"Agent response: {assistant_content}")
-    logging.debug(response)
-    logging.debug(messages)
+      if message.content:
+        logger.info(f"Agent response: {message.content}")
+        print(f"Agent: {message.content}")
+
+      if not message.tool_calls:
+        break
+
+      messages.extend(tool_registry.call_tools(message.tool_calls))
+
+    logger.debug(messages)
 
 
 def main() -> None:
@@ -76,8 +105,10 @@ def main() -> None:
   messages: list[ChatCompletionMessageParam] = [
     {"role": "system", "content": SYSTEM_PROMPT},
   ]
+  tool_registry = ToolRegistry()
+  tool_registry.register(AddTool())
   try:
-    chat_loop(messages)
+    chat_loop(messages, tool_registry=tool_registry)
   except (KeyboardInterrupt, SystemExit):
     logger.info("Chat ended")
 
