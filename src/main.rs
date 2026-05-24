@@ -10,8 +10,10 @@ use std::io::Write;
 use std::process::ExitCode;
 
 mod constants;
+mod tools;
 
 use constants::SYSTEM_PROMPT;
+use tools::{AddTool, ToolRegistry};
 
 fn init_logging() -> Result<()> {
     let now = Local::now();
@@ -75,10 +77,11 @@ fn get_input() -> Result<String> {
     Ok(input)
 }
 
-fn build_chat_request(messages: &JsonValue) -> String {
+fn build_chat_request(messages: &JsonValue, tools: &JsonValue) -> String {
     format!(
-        r#"{{"model":"deepseek-v4-flash","messages":{}}}"#,
-        messages.dump()
+        r#"{{"model":"deepseek-v4-flash","messages":{},"tools":{}}}"#,
+        messages.dump(),
+        tools.dump()
     )
 }
 
@@ -86,6 +89,10 @@ fn run() -> Result<()> {
     dotenv::dotenv().ok();
     init_logging()?;
     log::info!("agent started");
+
+    let mut tool_registry = ToolRegistry::new();
+    tool_registry.register(AddTool);
+    let tool_schemas = tool_registry.schemas()?;
 
     let mut messages = JsonValue::new_array();
     let mut system_message = JsonValue::new_object();
@@ -111,18 +118,35 @@ fn run() -> Result<()> {
             .push(user_message)
             .context("failed to add user message")?;
 
-        let body = build_chat_request(&messages);
-        let response = call(body)?;
+        loop {
+            let body = build_chat_request(&messages, &tool_schemas);
+            let response = call(body)?;
 
-        let assistant_message = response["choices"][0]["message"].clone();
-        let content = assistant_message["content"]
-            .as_str()
-            .context("response did not contain choices[0].message.content")?;
+            let assistant_message = response["choices"][0]["message"].clone();
+            let tool_calls = assistant_message["tool_calls"].clone();
 
-        println!("Assistant: {content}");
-        messages
-            .push(assistant_message)
-            .context("failed to add assistant message")?;
+            messages
+                .push(assistant_message.clone())
+                .context("failed to add assistant message")?;
+
+            let content = assistant_message["content"]
+                .as_str()
+                .context("response did not contain choices[0].message.content")?;
+
+            if !content.is_empty() {
+                println!("Assistant: {content}");
+            }
+
+            if tool_calls.len() == 0 {
+                break;
+            }
+
+            for tool_message in tool_registry.call_tools(&tool_calls)? {
+                messages
+                    .push(tool_message)
+                    .context("failed to add tool message")?;
+            }
+        }
     }
     Ok(())
 }
