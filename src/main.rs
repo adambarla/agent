@@ -137,7 +137,7 @@ fn run() -> Result<()> {
                 println!("Assistant: {content}");
             }
 
-            if tool_calls.len() == 0 {
+            if tool_calls.is_empty() {
                 break;
             }
 
