@@ -17,6 +17,10 @@ Run:
 cargo run
 ```
 
+## Architecture
+
+See [docs/architecture.md](docs/architecture.md) for the planned harness design.
+
 ## Checks
 
 ```sh
