@@ -1,5 +1,6 @@
 pub mod constants;
 pub mod harness;
 pub mod llm;
+pub mod session;
 pub mod tools;
 pub mod utils;
